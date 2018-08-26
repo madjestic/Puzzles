@@ -1,2 +1,2 @@
 # Puzzles
-Mark Cerny puzzles and other math problems
+Mark Cerny puzzle and other math problems
