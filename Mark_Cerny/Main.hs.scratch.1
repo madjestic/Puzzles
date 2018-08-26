@@ -1,0 +1,179 @@
+{-# LANGUAGE FlexibleContexts #-}
+
+module Main where
+
+import Data.List
+import Data.Set    (fromList)
+
+subsets :: [a] -> [[a]]
+subsets []  = [[]]
+subsets (x:xs) = subsets xs ++ map (x:) (subsets xs)
+
+-- | all combinanations of math operators (+,-,*,/)
+combinations size xs = [1..size] >>= \n -> mapM (const xs) [1..n]
+
+monoidCombsOfSize s =
+  [ x |  x <- combs, (length x) >= (s - 1)]
+  where
+    combs  = combinations s ['+','-','*','/']
+
+-- | all sum operation combinations of size s or less
+sumOpCombsLE s =
+  [ x |  x <- combs, (length x) >= (s - 1)]
+  where
+    combs  = combinations s ['+','-']
+
+sumOpsCombsOfSize s =
+  [ x | x <- (sumOpCombsLE s), (length x) == s ]
+
+-- | summation groups
+sumGroups :: [a] -> [[a]]
+sumGroups s =
+  [x | x <- subsets s, (length x) > 1, (length x) <= (length s)]
+
+sumGroupsPerms s = concat $ fmap permutations (sumGroups [1..s])
+
+-- | summation groups of size l from a set of permutations of size s
+sumGroupsPermsOfSize l s =
+  [ x | x <- (sumGroupsPerms s), (length x) == l]
+
+main =
+  do
+    print $ fmap (\[x,y] -> x+y) $ sumGroupsPermsOfSize 2 3
+    print $ fmap (\[x,y] -> x-y) $ sumGroupsPermsOfSize 2 3
+
+-- | Monoids = [+,-,*,/]
+-- | permutation of [1,2,3] represents the order of applying monoids
+-- 
+-- could be further optimized into, due to the following facts
+-- e.g.: [2,3,1]   -> (2 M 3) m 1 -> 2 M 3 m 1
+-- e.g.: [2,3,1,4] -> (2 M 3) m 1 M 4
+--                    (2 m 3 m 4)
+--                 ->  a M b m c M d
+-- where
+-- M = [+,-]
+-- m = [*,/]
+--                      
+--                 ->    m   m   m
+--                 ->    m   m   M
+--                 ->    m   M   m
+--                 ->    m   M   M
+--                 ->    M   m   m
+--                 ->    T   f   T
+--                 ->    T   T   f
+--                 ->    T   T   T
+--
+--                 , hence
+--                 ->    T   T   T
+--                 ->    T   T   f
+--                 ->    T   f   T
+--                 ->    T   f   f
+--                 ->    f   T   T
+--                 ->    f   T   f
+--                 ->    f   f   T
+--                 ->    f   f   f
+--                   where f,T => [Bool], i.e. True, false
+--                         f -> [+,-]
+--                         T -> [*,/]
+-- 
+-- since
+--       (2 * 1) + 3 == 2 * 1 + 3
+--       , hence parenthesis are only relevant for summation
+--       (2 + 1) * 3 == 3 * (2 + 1) == 3 * (1 + 2)
+--       (2 + 1) + 3 == 2 + (1 + 3) == (2 + 1 + 3)
+--       , hence there's redundancy
+--
+--aTbTc == aTcTb == ... == x_i, where x_i is element of $ permutations [x_0, x_1,...,x_n]
+-- T T == x_i  abc == bac == cba == bca == cab == acb
+-- T f != f T   e.g. 1 * 2 + 3 != 1 + 2 * 3
+-- f T != T f   same here
+-- f f == x_i
+--
+-- T T    abc == bac == cba == bca == cab == acb
+-- T f    abc == bac,   cba == bca,   cab == acb
+-- f T    abc == acb,   bac == bca,   cba == cab
+-- f f    abc == bac == cba == bca == cab == acb
+--        
+-- T T T == x_i
+-- T T f
+-- T f T == 1 * 2 + 3 * 4 != 1 * 3 + 2 * 4
+--                     14 != 11
+-- T T T  abcd == bacd == cbad == bcad == cabd == acbd == dcba == cdba == cbda == dbca == bdca == bcda == dabc == adbc == abdc == dbac == bdac == badc == dacb == adcb == acdb == dcab == cdab == cadb
+-- T T f  abcd == bacd == cbad == bcad == cabd == acbd
+-- but
+-- a T b f c T d == b T a f d T c
+-- i.e. for T f T,
+-- abcd == abdc == bacd == bacd
+-- T f f
+-- abcd == x_i, x_i <- ["bcd","cbd","dcb","cdb","dbc","bdc"]
+-- f T T
+-- f T f
+-- f f T
+-- f f f
+
+monoidCombs size =
+  [ x |  x <- combs, (length x) == size]
+  where
+    combs  = combinations size [True, False]
+
+
+monoidCombs' size set =
+  [ x |  x <- combs, (length x) == size]
+  where
+    combs  = combinations size set
+
+-- $ monoidCombs [True, False]
+-- [[True,True,True]
+-- ,[True,True,False]
+-- ,[True,False,True]
+-- ,[True,False,False]
+-- ,[False,True,True]
+-- ,[False,True,False]
+-- ,[False,False,True]
+-- ,[False,False,False]]
+--
+-- $ λ> permutations ['b','c','d']
+-- ["bcd","cbd","dcb","cdb","dbc","bdc"]
+--
+-- $ λ> fmap ("a" ++ ) $ permutations ['b','c','d']
+-- ["abcd","acbd","adcb","acdb","adbc","abdc"]
+-- 
+-- T f T == ab.cd == ab.dc == ba.cd == ba.dc == cd.ab == cd.ba == dc.ab == dc.ba
+-- λ> concat [[[a,b],[b,a]] | a <- ["ab","ba"], b <- ["cd","dc"]]
+-- [["ab","cd"],["cd","ab"],["ab","dc"],["dc","ab"],["ba","cd"],["cd","ba"],["ba","dc"],["dc","ba"]]
+--
+-- T T f
+--
+-- T
+--aTb = bTa
+-- T T
+--a b c == permutations(abc), hence no need to compute other permutations than abc
+-- T f      T f
+--a b c == b a c
+--a b c != a c b
+-- T  f       f T
+--a (b c) == b c a
+--a (c b) == c b a
+--
+--  [T,T,T] - same for all
+-- ,[T,T,f]
+-- ,[T,f,T] - redundancy in pairs
+-- ,[T,f,f] - f f - is same for all subset
+-- ,[f,T,T] - T T - is same for all subset
+-- ,[f,T,f] - redundancy in pairs
+-- ,[f,f,T] - 
+-- ,[f,f,f] - same for all
+-- 
+-- seems like it could be optimized, like a compiler optimization
+
+data MonoidM = M | A deriving Show
+data M = Mul | Div   deriving Show
+data A = Add | Sub   deriving Show
+
+interleave xs ys = concat (transpose [xs, ys])
+
+-- [M,M] -> [*,*], [*,/] [/,*], [/,/]
+--foo :: [MonoidM] -> [M]
+-- foo x =
+--   case x of M -> permutations [Mul, Div]
+--             A -> permutations [Add, Sub]
