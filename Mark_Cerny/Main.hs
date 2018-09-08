@@ -1,121 +1,183 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE FlexibleContexts #-}
-
 module Main where
 
+import Data.Char
 import Data.List
-import Data.Set    hiding (filter, (\\))
 
-combinations :: Int -> [a] -> [[a]]
+type Length = Int
+
+combinations :: Length -> [a] -> [[a]]
 combinations size set =
   [ x |  x <- cs size set, (length x) == size]
   where
     cs size xs = [1..size] >>= \n -> mapM (const xs) [1..n]
 
-interleave :: [a] -> [a] -> [a]
-interleave xs ys = concat (transpose [xs, ys])
+------------------------------------------------------------------------------------
+-- ASSOCIATION VARIANTS --
+------------------------------------------------------------------------------------
+data Assoc a = Leaf a | Assoc a :+ Assoc a
+                      | Assoc a :- Assoc a
+                      | Assoc a :* Assoc a
+                      | Assoc a :/ Assoc a
+  deriving Eq
 
-compose :: [Char] -> t -> [[Char]]
-compose p cs =
-  fmap (interleave p) $ combinations ((length p)-1) "+-*/"
+instance (a ~ Int) => Show (Assoc a) where
+  show (Leaf c)  = show c
+  show (a :+ b) = "(" ++ show a ++ "+" ++ show b  ++ ")"
+  show (a :- b) = "(" ++ show a ++ "-" ++ show b  ++ ")"
+  show (a :* b) = "(" ++ show a ++ "*" ++ show b  ++ ")"
+  show (a :/ b) = "(" ++ show a ++ "/" ++ show b  ++ ")"
 
-solve :: [Char] -> [Int]
-solve s =
-  filter (>0) $ toList.fromList $ filter (/=0) $ fmap parse $ concat [ compose x $ combinations ((length s) -1 ) "+-*/" | x <- permutations s]
+consWith :: a -> Char -> Assoc a -> [Assoc a]
+consWith x op y
+  = case op of
+      '+' -> (Leaf x :+ y) : rest
+      '-' -> (Leaf x :- y) : rest
+      '*' -> (Leaf x :* y) : rest
+      '/' -> (Leaf x :/ y) : rest
+      _   -> error "unknown operator"
+    where
+      rest = case y of
+        Leaf _ -> []
+        a :+ b -> (:+ b) <$> consWith x op a
+        a :- b -> (:- b) <$> consWith x op a
+        a :* b -> (:* b) <$> consWith x op a
+        a :/ b -> (:/ b) <$> consWith x op a
+                 
+                 
+assocsWith :: [a] -> String -> [Assoc a]
+assocsWith []  _             = []
+assocsWith [x] _             = [Leaf x]
+assocsWith (x:y:xs) (op:ops) = consWith x op =<< assocsWith (y:xs) (ops)
+assocsWith _  []             = []
 
-----------------------------------------------------------------------------------
--- | Parser | --------------------------------------------------------------------
-----------------------------------------------------------------------------------
-value :: [Char] -> Int -> Int
-value s n =
-  case s!!n of
-    '1' -> 1
-    '2' -> 2
-    '3' -> 3
-    '4' -> 4
-    '5' -> 5
-    '6' -> 6
-    _   -> error "non integer"
+------------------------------------------------------------------------------------
+-- LEXER --
+------------------------------------------------------------------------------------
+data Token
+  = PlusTok
+  | MinusTok
+  | MultTok
+  | DivTok
+  | OpenP
+  | CloseP
+  | IntTok Int
+  deriving (Show)
 
-operator :: Integral a => [Char] -> Int -> a -> a -> a
-operator c n =
-    case c!!n of
-    '+' -> (+)
-    '-' -> (-)
-    '*' -> (*)
-    '/' -> (div)
-    _   -> error "non operator"
-
--- | solves the formula as a sequence, where position order defines operation order
--- | , hence "2+2*3" == ((2+2)*3) = 12
-parse :: [Char] -> Int
-parse f =
-  case (length f) of
-    3 -> v1 `op1` v2
-    5 -> v1 `op1` v2 `op2` v3
-    7 -> v1 `op1` v2 `op2` v3 `op3` v4
-    9 -> v1 `op1` v2 `op2` v3 `op3` v4 `op4` v5
-    11-> v1 `op1` v2 `op2` v3 `op3` v4 `op4` v5 `op5` v6
-    _ -> error "formula is too long"
+lexer :: String -> [Token]
+lexer []              = []
+lexer ('+' : restStr) = PlusTok  : lexer restStr
+lexer ('-' : restStr) = MinusTok : lexer restStr
+lexer ('*' : restStr) = MultTok  : lexer restStr
+lexer ('/' : restStr) = DivTok   : lexer restStr 
+lexer ('(' : restStr) = OpenP    : lexer restStr 
+lexer (')' : restStr) = CloseP   : lexer restStr
+lexer (chr : restStr) 
+  | isSpace chr       = lexer restStr
+lexer str@(chr : _) 
+  | isDigit chr
+  = IntTok (stringToInt digitStr) : lexer restStr
   where
-    v1  = value    f 0
-    v2  = value    f 2
-    v3  = value    f 4
-    v4  = value    f 6
-    v5  = value    f 8
-    v6  = value    f 10
-    op1 = operator f 1
-    op2 = operator f 3
-    op3 = operator f 5
-    op4 = operator f 7
-    op5 = operator f 9
-    
-----------------------------------------------------------------------------------
--- | Test | --------------------------------------------------------------------
-----------------------------------------------------------------------------------
-test :: [Char] -> Int -> IO ()
-test set val = do
-  let listOfSolutions = solutions set
-  let idx = elemIndex val listOfSolutions
-  let listOfFormulas  = concat [ compose x $ combinations ((length set) -1 ) "+-*/" | x <- permutations set]
-  print $ case idx of
-            (Just idx) -> "formula for " ++ (show val) ++ "is: " ++ (listOfFormulas !! idx)
-            (Nothing)  -> (show val) ++ " has solution"
+     (digitStr, restStr) = break (not . isDigit) str
+     -- local function to convert a string to an integer value
+     stringToInt :: String -> Int
+     stringToInt = foldl (\acc chr -> 10 * acc + digitToInt chr) 0
+-- runtime error for all other characters:
+lexer (chr : restString) 
+  = error ("lexer: unexpected character: '" ++ [chr] ++ "'")
 
--- | raw unfiltered solutions for debugging
-solutions :: [Char] -> [Int]
-solutions s =
-   fmap parse $ concat [ compose x $ combinations ((length s) -1 ) "+-*/" | x <- permutations s]
+notIsDigit :: Char -> Bool
+notIsDigit = (not . isDigit)
 
+stringToInt :: String -> Int
+stringToInt = foldl (\acc chr -> 10 * acc + digitToInt chr) 0
 
-main =
-  do
-    let set         = "123"
-    let ss          = solve set
-    let diff        = ([1..(maximum ss)+1] \\ ss)
-    print $ solve set
-    print $ diff
-    putStrLn $ "diff for \"123\" is: " ++ (show $ head diff) ++ "\n"
+------------------------------------------------------------------------------------
+-- PARSER --
+------------------------------------------------------------------------------------
 
-    let set         = "1234"
-    let ss          = solve set
-    let diff        = ([1..(maximum ss)+1] \\ ss)
-    print $ ss
-    print $ diff
-    putStrLn $ "diff for " ++ set ++ " is: " ++ (show $ head diff) ++ "\n"
+data Expr
+  = IntLit Int          -- integer constants, leaves of the expression tree
+  | Add    Expr Expr    -- addition node
+  | Sub    Expr Expr
+  | Mult   Expr Expr    -- multiplication node
+  | Div    Expr Expr
+  deriving Show
 
-    let set         = "12345"
-    let ss          = solve set
-    let diff        = ([1..(maximum ss)+1] \\ ss)
-    print $ ss
-    print $ diff
-    putStrLn $ "diff for " ++ set ++ " is: " ++ (show $ head diff) ++ "\n"
+parseIntOrParenExpr :: [Token] -> Maybe (Expr, [Token])
+parseIntOrParenExpr tokens
+  = case tokens of
+      (IntTok n : restTokens) -> Just (IntLit n,   restTokens)
+      (OpenP : restTokens) -> 
+        case parseSumOrProdOrIntOrParenExpr restTokens of
+          Just (expr, (CloseP : restTokens)) -> Just (expr, restTokens)
+          Just _  -> Nothing -- no closing paren
+          Nothing -> Nothing
+      _ -> Nothing
+      
+parseProdOrIntOrParenExpr :: [Token] -> Maybe (Expr, [Token])
+parseProdOrIntOrParenExpr tokens
+  = case parseIntOrParenExpr tokens of
+      Just (expr1, (MultTok : restTokens)) -> 
+          case parseProdOrIntOrParenExpr restTokens of
+            Just (expr2, restTokens) -> Just (Mult expr1 expr2, restTokens)
+            Nothing                  -> Nothing
+      Just (expr1, (DivTok : restTokens)) -> 
+          case parseProdOrIntOrParenExpr restTokens of
+            Just (expr2, restTokens) -> Just (Div expr1 expr2, restTokens)
+            Nothing                  -> Nothing
+      result -> result   
 
-    let set         = "123456"
-    let ss          = solve set
-    let diff        = ([1..(maximum ss)+1] \\ ss)
-    print $ ss
-    print $ diff
-    putStrLn $ "diff for " ++ set ++ " is: " ++ (show $ head diff) ++ "\n"
+parseSumOrProdOrIntOrParenExpr :: [Token] -> Maybe (Expr, [Token])
+parseSumOrProdOrIntOrParenExpr tokens
+  = case parseProdOrIntOrParenExpr tokens of
+      Just (expr1, (PlusTok : restTokens)) -> 
+          case parseSumOrProdOrIntOrParenExpr restTokens of
+            Just (expr2, restTokens) -> Just (Add expr1 expr2, restTokens)
+            Nothing                  -> Nothing
+      Just (expr1, (MinusTok : restTokens)) -> 
+          case parseSumOrProdOrIntOrParenExpr restTokens of
+            Just (expr2, restTokens) -> Just (Sub expr1 expr2, restTokens)
+            Nothing                  -> Nothing
+      result -> result
 
--- demonstrate that 283 is in the solution set, that will prove that 284 is not the lowest natural number:
-    
+parse :: [Token] -> Expr
+parse tokens =
+  case parseSumOrProdOrIntOrParenExpr tokens of
+    Just (expr, []) -> expr    
+    _               -> error "Could not parse input" 
+
+------------------------------------------------------------------------------------
+-- EVALUATE --
+------------------------------------------------------------------------------------
+-- | λ> map (eval . parse . lexer) ["(1*2)/4", "3/0", "2+2"]
+-- [0,0,4]
+eval :: Expr -> Int
+eval expr
+  = case expr of
+      (IntLit n)         -> n
+      (Add  expr1 expr2) -> eval expr1 + eval expr2
+      (Sub  expr1 expr2) -> eval expr1 - eval expr2
+      (Mult expr1 expr2) -> eval expr1 * eval expr2
+      (Div  expr1 expr2) ->
+        if (eval expr2) /= 0
+          then eval expr1 `div` eval expr2
+          else 0
+
+-- type Permutations     = [Int]
+-- type Combinations     = String
+-- type Parenthesization = 
+-- solve :: Permutations -> Combinations -> Parenthesization -> Int
+
+main = do
+  undefined
+  -- let foo = assocs "abcd"
+  -- print $ foo!!0
+
+-- λ> fmap (assocsWith "abc") ["+-", "--"]
+-- [[(a+(b-c)),((a+b)-c)],[(a-(b-c)),((a-b)-c)]]
+
+-- λ> fmap (assocsWith [1,2,3]) ["+-", "--"]
+-- [[(1+(2-3)),((1+2)-3)],[(1-(2-3)),((1-2)-3)]]
