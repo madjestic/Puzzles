@@ -166,18 +166,30 @@ eval expr
           then eval expr1 `div` eval expr2
           else 0
 
--- type Permutations     = [Int]
--- type Combinations     = String
--- type Parenthesization = 
--- solve :: Permutations -> Combinations -> Parenthesization -> Int
+------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------
+formula :: [[Int]] -> [String]
+formula xs =
+  fmap show $ (concat . concat) [fmap (assocsWith x) (combinations ((length x) - 1) "+-*/") | x <- xs]
 
+solve :: [Int] -> [Int]
+solve xs = map (eval . parse . lexer) $ (formula . permutations) xs
+
+solve' :: [Int] -> IO ()
+solve' xs = do
+  let set         = xs
+  let ss          = solve set
+  let diff        = ([1..(maximum ss)+1] \\ ss)
+  -- putStrLn $ "ss (solution set)     : " ++ show ss
+  -- putStrLn $ "first NN not in the ss: " ++ show diff
+  putStrLn $ "solution for " ++ show set ++ " : \n" ++ (show $ head diff) ++ "\n"  
+
+
+main :: IO ()
 main = do
-  undefined
-  -- let foo = assocs "abcd"
-  -- print $ foo!!0
-
--- λ> fmap (assocsWith "abc") ["+-", "--"]
--- [[(a+(b-c)),((a+b)-c)],[(a-(b-c)),((a-b)-c)]]
-
--- λ> fmap (assocsWith [1,2,3]) ["+-", "--"]
--- [[(1+(2-3)),((1+2)-3)],[(1-(2-3)),((1-2)-3)]]
+  solve' [1..2]
+  solve' [1..3]
+  solve' [1..4]
+  solve' [1..5]
+  solve' [1..6]
